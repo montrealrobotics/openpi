@@ -9,6 +9,7 @@ from openpi.policies import policy as _policy
 from openpi.policies import policy_config as _policy_config
 from openpi.serving import websocket_policy_server
 from openpi.training import config as _config
+from openpi.policies import policy_molmo as _policy_molmo
 
 
 class EnvMode(enum.Enum):
@@ -18,6 +19,7 @@ class EnvMode(enum.Enum):
     ALOHA_SIM = "aloha_sim"
     DROID = "droid"
     LIBERO = "libero"
+    MOLMO = "molmo"
 
 
 @dataclasses.dataclass
@@ -97,8 +99,12 @@ def create_policy(args: Args) -> _policy.Policy:
 
 
 def main(args: Args) -> None:
-    policy = create_policy(args)
-    policy_metadata = policy.metadata
+    if args.policy.config == "molmo":
+        policy = _policy_molmo.Policy()
+        policy_metadata = ""
+    else:
+        policy = create_policy(args)
+        policy_metadata = policy.metadata
 
     # Record the policy's behavior.
     if args.record:

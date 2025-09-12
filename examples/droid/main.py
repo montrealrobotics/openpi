@@ -7,13 +7,13 @@ import faulthandler
 import os
 import signal
 import time
-from moviepy.editor import ImageSequenceClip
+# from moviepy.editor import ImageSequenceClip
 import numpy as np
 from openpi_client import image_tools
 from openpi_client import websocket_client_policy
 import pandas as pd
 from PIL import Image
-from droid.robot_env import RobotEnv
+# from droid.robot_env import RobotEnv
 import tqdm
 import tyro
 
@@ -69,16 +69,25 @@ def prevent_keyboard_interrupt():
         if interrupted:
             raise KeyboardInterrupt
 
+def make_droid_example() -> dict:
+    """Creates a random input example for the Droid policy."""
+    return {
+        "observation/exterior_image_1_left": np.random.randint(256, size=(224, 224, 3), dtype=np.uint8),
+        "observation/wrist_image_left": np.random.randint(256, size=(224, 224, 3), dtype=np.uint8),
+        "observation/joint_position": np.random.rand(7),
+        "observation/gripper_position": np.random.rand(1),
+        "prompt": "do something",
+    }
 
 def main(args: Args):
     # Make sure external camera is specified by user -- we only use one external camera for the policy
-    assert (
-        args.external_camera is not None and args.external_camera in ["left", "right"]
-    ), f"Please specify an external camera to use for the policy, choose from ['left', 'right'], but got {args.external_camera}"
+    # assert (
+    #     args.external_camera is not None and args.external_camera in ["left", "right"]
+    # ), f"Please specify an external camera to use for the policy, choose from ['left', 'right'], but got {args.external_camera}"
 
-    # Initialize the Panda environment. Using joint velocity action space and gripper position action space is very important.
-    env = RobotEnv(action_space="joint_velocity", gripper_action_space="position")
-    print("Created the droid env!")
+    # # Initialize the Panda environment. Using joint velocity action space and gripper position action space is very important.
+    # env = RobotEnv(action_space="cartesian_velocity", gripper_action_space="position")
+    # print("Created the droid env!")
 
     # Connect to the policy server
     policy_client = websocket_client_policy.WebsocketClientPolicy(args.remote_host, args.remote_port)
@@ -87,10 +96,6 @@ def main(args: Args):
 
     while True:
         instruction = input("Enter instruction: ")
-
-        # Rollout parameters
-        actions_from_chunk_completed = 0
-        pred_action_chunk = None
 
         # Prepare to save video of rollout
         timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H:%M:%S")
@@ -101,41 +106,39 @@ def main(args: Args):
             start_time = time.time()
             try:
                 # Get the current observation
-                curr_obs = _extract_observation(
-                    args,
-                    env.get_observation(),
-                    # Save the first observation to disk
-                    save_to_disk=t_step == 0,
-                )
+                # curr_obs = _extract_observation(
+                #     args,
+                #     env.get_observation(),
+                #     # Save the first observation to disk
+                #     save_to_disk=t_step == 0,
+                # )
 
-                video.append(curr_obs[f"{args.external_camera}_image"])
+                # video.append(curr_obs[f"{args.external_camera}_image"])
 
-                # Send websocket request to policy server if it's time to predict a new chunk
-                if actions_from_chunk_completed == 0 or actions_from_chunk_completed >= args.open_loop_horizon:
-                    actions_from_chunk_completed = 0
 
-                    # We resize images on the robot laptop to minimize the amount of data sent to the policy server
-                    # and improve latency.
-                    request_data = {
-                        "observation/exterior_image_1_left": image_tools.resize_with_pad(
-                            curr_obs[f"{args.external_camera}_image"], 224, 224
-                        ),
-                        "observation/wrist_image_left": image_tools.resize_with_pad(curr_obs["wrist_image"], 224, 224),
-                        "observation/joint_position": curr_obs["joint_position"],
-                        "observation/gripper_position": curr_obs["gripper_position"],
-                        "prompt": instruction,
-                    }
+                # We resize images on the robot laptop to minimize the amount of data sent to the policy server
+                # and improve latency.
+                # request_data = {
+                #     "observation/exterior_image_1_left": image_tools.resize_with_pad(
+                #         curr_obs[f"{args.external_camera}_image"], 256, 256
+                #     ),
+                #     "observation/wrist_image_left": image_tools.resize_with_pad(curr_obs["wrist_image"], 224, 224),
+                #     "observation/joint_position": curr_obs["joint_position"],
+                #     "observation/gripper_position": curr_obs["gripper_position"],
+                #     "prompt": instruction,
+                # }
+                request_data = make_droid_example()
+                request_data["prompt"] = instruction
 
-                    # Wrap the server call in a context manager to prevent Ctrl+C from interrupting it
-                    # Ctrl+C will be handled after the server call is complete
-                    with prevent_keyboard_interrupt():
-                        # this returns action chunk [10, 8] of 10 joint velocity actions (7) + gripper position (1)
-                        pred_action_chunk = policy_client.infer(request_data)["actions"]
-                    assert pred_action_chunk.shape == (10, 8)
-
-                # Select current action to execute from chunk
-                action = pred_action_chunk[actions_from_chunk_completed]
-                actions_from_chunk_completed += 1
+                # Wrap the server call in a context manager to prevent Ctrl+C from interrupting it
+                # Ctrl+C will be handled after the server call is complete
+                with prevent_keyboard_interrupt():
+                    # this returns action of 1 cartesian velocity actions (6) + gripper position (1)
+                    actions = policy_client.infer(request_data)["action"]
+                print(actions)
+                action = actions[0]
+                print(action.shape)
+                assert action.shape == (7, )
 
                 # Binarize gripper action
                 if action[-1].item() > 0.5:
@@ -148,7 +151,7 @@ def main(args: Args):
                 # clip all dimensions of action to [-1, 1]
                 action = np.clip(action, -1, 1)
 
-                env.step(action)
+                # env.step(action)
 
                 # Sleep to match DROID data collection frequency
                 elapsed_time = time.time() - start_time
@@ -157,36 +160,36 @@ def main(args: Args):
             except KeyboardInterrupt:
                 break
 
-        video = np.stack(video)
-        save_filename = "video_" + timestamp
-        ImageSequenceClip(list(video), fps=10).write_videofile(save_filename + ".mp4", codec="libx264")
+        # video = np.stack(video)
+        # save_filename = "video_" + timestamp
+        # ImageSequenceClip(list(video), fps=10).write_videofile(save_filename + ".mp4", codec="libx264")
 
-        success: str | float | None = None
-        while not isinstance(success, float):
-            success = input(
-                "Did the rollout succeed? (enter y for 100%, n for 0%), or a numeric value 0-100 based on the evaluation spec"
-            )
-            if success == "y":
-                success = 1.0
-            elif success == "n":
-                success = 0.0
+        # success: str | float | None = None
+        # while not isinstance(success, float):
+        #     success = input(
+        #         "Did the rollout succeed? (enter y for 100%, n for 0%), or a numeric value 0-100 based on the evaluation spec"
+        #     )
+        #     if success == "y":
+        #         success = 1.0
+        #     elif success == "n":
+        #         success = 0.0
 
-            success = float(success) / 100
-            if not (0 <= success <= 1):
-                print(f"Success must be a number in [0, 100] but got: {success * 100}")
+        #     success = float(success) / 100
+        #     if not (0 <= success <= 1):
+        #         print(f"Success must be a number in [0, 100] but got: {success * 100}")
 
-        df = df.append(
-            {
-                "success": success,
-                "duration": t_step,
-                "video_filename": save_filename,
-            },
-            ignore_index=True,
-        )
+        # df = df.append(
+        #     {
+        #         "success": success,
+        #         "duration": t_step,
+        #         "video_filename": save_filename,
+        #     },
+        #     ignore_index=True,
+        # )
 
-        if input("Do one more eval? (enter y or n) ").lower() != "y":
-            break
-        env.reset()
+        # if input("Do one more eval? (enter y or n) ").lower() != "y":
+        #     break
+        # env.reset()
 
     os.makedirs("results", exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%I:%M%p_%B_%d_%Y")
