@@ -533,7 +533,7 @@ _CONFIGS = [
     ),
     TrainConfig(
         name="pi0_fast_bridge",
-        model=pi0_fast.Pi0FASTConfig(action_dim=8, action_horizon=10),
+        model=pi0_fast.Pi0FASTConfig(action_dim=7, action_horizon=10, max_token_len=180),
         data=LeRobotBridgeDataConfig(
             repo_id="akuramshin/bridge_original",
             base_config=DataConfig(
